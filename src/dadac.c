@@ -514,10 +514,14 @@ int cmpPP(const void* p1, const void *p2)
      ***********************************************/
     Datapoint_info* pp1 = *(Datapoint_info**)p1;
     Datapoint_info* pp2 = *(Datapoint_info**)p2;
-    return 2*(pp1 -> g < pp2 -> g) - 1;
+	float_t g1 = pp1 -> g;
+	float_t g2 = pp2 -> g;
+  	//return - ( DensA > DensB) + (DensA < DensB);
+    return - (g1 > g2) + (g1 < g2);
+    //return 2*(pp1 -> g < pp2 -> g) - 1;
 }
 
-void computeCorrection(Datapoint_info* dpInfo, idx_t n, FLOAT_TYPE Z)
+void computeCorrection(Datapoint_info* dpInfo, int* mask, idx_t n, FLOAT_TYPE Z)
 {
     /*****************************************************************************
      * Utility function, find the minimum value of the density of the datapoints *
@@ -533,7 +537,7 @@ void computeCorrection(Datapoint_info* dpInfo, idx_t n, FLOAT_TYPE Z)
         for(idx_t i = 0; i < n; ++i)
         {
             FLOAT_TYPE tmp = dpInfo[i].log_rho - Z*dpInfo[i].log_rho_err;
-            if(tmp < thread_min_log_rho){
+            if(tmp < thread_min_log_rho && mask[i]){
                 thread_min_log_rho = tmp;
             }
         }
@@ -551,7 +555,8 @@ void computeCorrection(Datapoint_info* dpInfo, idx_t n, FLOAT_TYPE Z)
     //printf("%lf\n",min_log_rho);
 }
 
-Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
+//Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, int nrows, int ncols)
+Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols)
 {
     /**************************************************************
      * Heurisitc 1, from paper of Errico, Facco, Laio & Rodriguez *
@@ -577,7 +582,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
     DynamicArray_allocate(&actualCenters);
     DynamicArray_allocate(&max_rho);
 
-    Datapoint_info** dpInfo_ptrs = (Datapoint_info**)malloc(n*sizeof(Datapoint_info*));
+    Datapoint_info** dpInfo_ptrs = (Datapoint_info**)malloc(nrows*ncols*sizeof(Datapoint_info*));
 
     struct timespec start, finish;
     double elapsed;
@@ -587,7 +592,8 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
         clock_gettime(CLOCK_MONOTONIC, &start);
     #endif
 
-    for(idx_t i = 0; i < n; ++i)
+    for(int i = 0; i < (int)nrows; ++i)
+    for(int j = 0; j < (int)ncols; ++j)
     {   
         /*
 
@@ -596,24 +602,34 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
         
         */
 
-        dpInfo_ptrs[i] = dpInfo + i;
-        idx_t maxk = dpInfo[i].kstar + 1;
-        FLOAT_TYPE gi = dpInfo[i].g;
-        dpInfo[i].is_center = 1;
-        dpInfo[i].cluster_idx = -1;
+        dpInfo_ptrs[i*ncols + j] = dpInfo + i*ncols + j;
+        int r = (int)dpInfo[i*ncols + j].kstar;
+        //int r = 50; 
+        FLOAT_TYPE gi = dpInfo[i*ncols + j].g;
+        dpInfo[i*ncols + j].is_center = mask[i*ncols + j] ? 1 : 0;
+        dpInfo[i*ncols + j].cluster_idx = -1;
         //printf("%lf\n",p -> g);
-        Heap i_ngbh = dpInfo[i].ngbh;
-        for(idx_t k = 1; k < maxk; ++k)
-        {
-            idx_t ngbh_index = i_ngbh.data[k].array_idx;
-            FLOAT_TYPE gj = dpInfo[ngbh_index].g;
-            if(gj > gi){
-                dpInfo[i].is_center = 0;
-                break;
-            }
-        }
-        if(dpInfo[i].is_center){
-                DynamicArray_pushBack(&allCenters, i);
+		int jjmin = j - r > 0 			? j - r : 0;  
+		int jjmax = j + r + 1 < (int)ncols 	? j + r + 1 : (int)ncols;  
+
+		int iimin = i - r > 0 	 		? i - r : 0;  
+		int iimax = i + r + 1 < (int)nrows 	? i + r + 1 : (int)nrows;  
+		
+		if(mask[i*ncols + j])
+		{
+			for(int ii = iimin; ii < iimax; ++ii)
+			for(int jj = jjmin; jj < jjmax; ++jj)
+			{
+				idx_t ngbh_index = (idx_t)ii*ncols + jj; 
+				FLOAT_TYPE gj = dpInfo[ngbh_index].g;
+				if(gj > gi && mask[ngbh_index] && ((int)ngbh_index != (int)(i*ncols + j) )){
+					dpInfo[i*ncols + j].is_center = 0;
+					break;
+				}
+			}
+		}
+        if(dpInfo[i*ncols + j].is_center && mask[i*ncols + j]){
+                DynamicArray_pushBack(&allCenters, i*ncols + j);
         }
 
 
@@ -627,11 +643,106 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
         clock_gettime(CLOCK_MONOTONIC, &start);
     #endif
 
+	qsort(dpInfo_ptrs, nrows*ncols, sizeof(Datapoint_info*), cmpPP);
+
     idx_t * to_remove = (idx_t*)malloc(allCenters.count*sizeof(idx_t));
     for(idx_t c = 0; c < allCenters.count; ++c) {to_remove[c] = MY_SIZE_MAX;}
 
-    qsort(dpInfo_ptrs, n, sizeof(Datapoint_info*), cmpPP);
+	idx_t* to_remove_mask = (idx_t*)malloc(nrows*ncols*sizeof(idx_t));
+    for(idx_t p = 0; p < nrows*ncols; ++p) {to_remove_mask[p] = MY_SIZE_MAX;}
 
+	
+    #pragma omp parallel shared(to_remove_mask)
+    {
+        #pragma omp for
+        for(idx_t p = 0; p < nrows*ncols; ++p)
+        {
+        	Datapoint_info pp = *(dpInfo_ptrs[p]);
+			int i = (int)pp.array_idx / (int)ncols;
+			int j = (int)pp.array_idx % (int)ncols;
+			int r = (int)pp.kstar; //ATTENTION
+
+			int jjmin = j - r > 0 				? j - r : 0;  
+			int jjmax = j + r + 1 < (int)ncols 	? j + r + 1 : (int)ncols;  
+
+			int iimin = i - r > 0 	 			? i - r : 0;  
+			int iimax = i + r + 1 < (int)nrows 	? i + r + 1 : (int)nrows;  
+			int flag = 0;
+			idx_t ppp = 0;
+			
+			if(mask[i*ncols + j])
+			{
+				for(int ii = iimin; ii < iimax; ++ii)
+				for(int jj = jjmin; jj < jjmax; ++jj)
+				{
+					idx_t jidx = ii*ncols + jj;
+					if(dpInfo[jidx].is_center && pp.g > dpInfo[jidx].g && mask[jidx])
+					{
+						
+						#pragma omp critical 
+						{
+							ppp = to_remove_mask[jidx];
+							flag = ppp != MY_SIZE_MAX;							
+							to_remove_mask[jidx] = flag ? (pp.g > dpInfo[ppp].g ? pp.array_idx : ppp) : pp.array_idx; 
+						}
+						
+						//#pragma omp atomic read 
+						//ppp = to_remove_mask[jidx];
+
+						//flag = ppp != MY_SIZE_MAX;							
+						//
+						//#pragma omp atomic write
+						//to_remove_mask[jidx] = flag ? (pp.g > dpInfo[ppp].g ? pp.array_idx : ppp) : pp.array_idx; 
+					}
+				}
+			}
+		}
+	}
+    
+    
+
+    for(idx_t p = 0; p < allCenters.count; ++p)
+    {
+        idx_t i = allCenters.data[p];
+        int e = 0;
+        //FLOAT_TYPE gi = dpInfo[i].g;
+        idx_t mr = to_remove_mask[i];
+        if(mr != MY_SIZE_MAX)
+        {
+            //if(dpInfo[mr].g > gi) e = 1;
+			e = 1;
+        }
+        switch (e)
+        {
+            case 1:
+                {
+                    DynamicArray_pushBack(&removedCenters,i);
+                    dpInfo[i].is_center = 0;
+                    for(idx_t c = 0; c < removedCenters.count - 1; ++c)
+                    {
+                        if(mr == removedCenters.data[c])
+                        {
+                            mr = max_rho.data[c];
+                        }
+                    }
+                    DynamicArray_pushBack(&max_rho,mr);
+                    
+                }
+                break;
+            case 0:
+                {
+                    DynamicArray_pushBack(&actualCenters,i);
+                    dpInfo[i].cluster_idx = actualCenters.count - 1;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+
+	
+/*	
     #pragma omp parallel
     {
             
@@ -639,31 +750,46 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
     	for(idx_t c = 0; c < allCenters.count; ++c) {to_remove_private[c] = MY_SIZE_MAX;}
 
         #pragma omp for
-        for(idx_t p = 0; p < n; ++p)
+        for(idx_t p = 0; p < nrows*ncols; ++p)
         {
         	Datapoint_info pp = *(dpInfo_ptrs[p]);
-        	for(idx_t j = 1; j < pp.kstar + 1; ++j)
-        	{
-        		idx_t jidx = pp.ngbh.data[j].array_idx;
-        		if(dpInfo[jidx].is_center && pp.g > dpInfo[jidx].g)
-        		{
-        			//dpInfo[jidx].is_center = 0;
-        			for(idx_t c = 0; c < allCenters.count; ++c){
-        				if(allCenters.data[c] == jidx)
-					{
+			int i = (int)pp.array_idx / (int)ncols;
+			int j = (int)pp.array_idx % (int)ncols;
+			int r = (int)pp.kstar; //ATTENTION
 
-						if(to_remove_private[c] != MY_SIZE_MAX)
+			int jjmin = j - r > 0 			? j - r : 0;  
+			int jjmax = j + r + 1 < ncols 	? j + r + 1 : ncols;  
+
+			int iimin = i - r > 0 	 		? i - r : 0;  
+			int iimax = i + r + 1 < nrows 	? i + r + 1 : nrows;  
+			
+			if(mask[i*ncols + j])
+			{
+				for(int ii = iimin; ii < iimax; ++ii)
+				for(int jj = jjmin; jj < jjmax; ++jj)
+				{
+					idx_t jidx = ii*ncols + jj;
+					if(dpInfo[jidx].is_center && pp.g > dpInfo[jidx].g && mask[jidx])
+					{
+						//dpInfo[jidx].is_center = 0;
+						for(idx_t c = 0; c < allCenters.count; ++c)
 						{
-							to_remove_private[c] = pp.g > 	dpInfo[to_remove_private[c]].g  ? pp.array_idx : to_remove_private[c];
-						}
-						else
-						{
-							to_remove_private[c] = pp.array_idx;
+							if(allCenters.data[c] == jidx)
+							{
+
+								if(to_remove_private[c] != MY_SIZE_MAX)
+								{
+									to_remove_private[c] = pp.g > 	dpInfo[to_remove_private[c]].g  ? pp.array_idx : to_remove_private[c];
+								}
+								else
+								{
+									to_remove_private[c] = pp.array_idx;
+								}
+							}
 						}
 					}
-        			}
-        		}
-        	}
+				}
+			}
         }
         #pragma omp critical
         {
@@ -686,9 +812,10 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
 
             free(to_remove_private);
     }
-
 	
 
+	
+	
     for(idx_t p = 0; p < allCenters.count; ++p)
     {
         idx_t i = allCenters.data[p];
@@ -706,13 +833,13 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
                 {
                     DynamicArray_pushBack(&removedCenters,i);
                     dpInfo[i].is_center = 0;
-                    //for(idx_t c = 0; c < removedCenters.count - 1; ++c)
-                    //{
-                    //    if(mr == removedCenters.data[c])
-                    //    {
-                    //        mr = max_rho.data[c];
-                    //    }
-                    //}
+                    for(idx_t c = 0; c < removedCenters.count - 1; ++c)
+                    {
+                        if(mr == removedCenters.data[c])
+                        {
+                            mr = max_rho.data[c];
+                        }
+                    }
                     DynamicArray_pushBack(&max_rho,mr);
                     
                 }
@@ -727,6 +854,11 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
                 break;
         }
     }
+	
+	*/
+	free(to_remove);
+	free(to_remove_mask);
+
 
     #ifdef VERBOSE
         clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -737,7 +869,6 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
         clock_gettime(CLOCK_MONOTONIC, &start);
     #endif
 
-    free(to_remove);
 
     //idx_t nclusters = 0;
 
@@ -750,34 +881,178 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
                                                                                 
 
     //qsort(dpInfo_ptrs, n, sizeof(Datapoint_info*), cmpPP);
+	
+	
+	idx_t* fromWho = (idx_t*)malloc(nrows*ncols*sizeof(idx_t));
+    for(idx_t pidx = 0; pidx < nrows*ncols; ++pidx) fromWho[pidx] = SIZE_MAX;
 
-    for(idx_t i = 0; i < n; ++i)
+	/*
+	#pragma omp parallel for schedule(dynamic)
+    for(idx_t pidx = 0; pidx < nrows*ncols; ++pidx)
     {   
-        Datapoint_info* p = dpInfo_ptrs[i];
+        Datapoint_info* p = dpInfo_ptrs[pidx];
+		int i = (int)(p -> array_idx) / ncols;
+		int j = (int)(p -> array_idx) % ncols;
+		int r = p -> kstar + 1; //ATTENTION
+		//int r = 5; //ATTENTION
+		int iimin, iimax, jjmin, jjmax;
         //idx_t ele = p -> array_idx;
         //fprintf(f,"%lu\n",ele);
-        if(!(p -> is_center))
+        if(!(p -> is_center) && mask[i*ncols + j])
         {
             int cluster = -1;
             idx_t k = 0;
             idx_t p_idx;
-            idx_t max_k = p -> ngbh.N;
             //assign each particle at the same cluster as the nearest particle of higher density
-            while( k < max_k - 1 && cluster == -1)
+			jjmin = j - r > 0 			? j - r : 0;  
+			jjmax = j + r + 1 < ncols 	? j + r + 1 : ncols;  
+
+			iimin = i - r > 0 	 		? i - r : 0;  
+			iimax = i + r + 1 < nrows 	? i + r + 1 : nrows;  
+			
+			int ii_toTakeFrom, jj_toTakeFrom;
+			long int minNgbhDist = nrows*nrows*ncols*ncols;
+			float_t g_current = dpInfo[i*ncols + j].g;
+			int foundFlag = 0;
+			for(int ii = iimin; ii < iimax; ++ii)
+			for(int jj = jjmin; jj < jjmax; ++jj)
+			//Take the same cluster as the nearest neighbor with higher density
+			{
+				//take the ngbh
+				long int currentDist = (ii-i)*(ii-i) + (jj-j)*(jj-j);	
+				int notMySelf = (ii != i) || (jj != j);
+				idx_t ngbhIdx = i*ncols + j;
+				float_t g_ngbh = dpInfo[ngbhIdx].g; 
+				//if(ii*ncols + j == 302000)
+				//{
+				//	printf("Nopeh\n");
+				//}
+				if(g_ngbh > g_current && notMySelf && currentDist < minNgbhDist)
+				{
+					minNgbhDist = currentDist;
+					p_idx = ii*ncols + jj;
+					ii_toTakeFrom = ii;
+					jj_toTakeFrom = jj;
+					cluster = dpInfo[p_idx].cluster_idx; 
+					foundFlag = 1;
+					fromWho[i*ncols + j] = p_idx;
+				}
+			}
+
+
+            //
+            if(!foundFlag)
             {
-                ++k;
-                p_idx = p -> ngbh.data[k].array_idx;
-                cluster = dpInfo[p_idx].cluster_idx; 
+                FLOAT_TYPE gmax = -99999.;               
+                idx_t gm_index = 0;
+
+				for(int ii = iimin; ii < iimax; ++ii)
+				for(int jj = jjmin; jj < jjmax; ++jj)
+                {
+                    idx_t ngbh_index = ii*ncols + jj;
+                    for(idx_t m = 0; m < removedCenters.count; ++m)
+                    {
+                        FLOAT_TYPE gcand = dpInfo[max_rho.data[m]].g;
+                        if(ngbh_index == removedCenters.data[m] && gcand > gmax)
+                        {   
+                            //printf("%lu -- %lu\n", ele, m);
+                            gmax = gcand;
+                            gm_index = max_rho.data[m];
+							fromWho[i*ncols + j] = gm_index;
+							foundFlag = 1;
+                        }
+                    }
+                }
+
+                //cluster = dpInfo[gm_index].cluster_idx;
+
             }
+            //p -> cluster_idx = cluster;
+			if(!foundFlag) mask[i*ncols + j] = 0;
+
+		}
+	}
+
+	printf("aa\n");
+	#pragma omp parallel for schedule(dynamic)
+	for(int i = 0; i < nrows; ++i)
+	for(int j = 0; j < ncols; ++j)
+	{
+		idx_t pidx = dpInfo_ptrs[i*ncols + j]->array_idx;
+		if(mask[pidx])
+		{
+			idx_t idxToTakeFrom = fromWho[pidx];
+			int cluster = -1;
+			while(cluster == -1)
+			{
+				cluster = dpInfo[idxToTakeFrom].cluster_idx;				
+				idxToTakeFrom = fromWho[idxToTakeFrom];
+			}
+			dpInfo[pidx].cluster_idx = cluster;
+		}
+	}
+	
+	*/
+
+	
+	
+    for(idx_t pidx = 0; pidx < nrows*ncols; ++pidx)
+    {   
+        Datapoint_info* p = dpInfo_ptrs[pidx];
+		int i = (int)(p -> array_idx) / ncols;
+		int j = (int)(p -> array_idx) % ncols;
+		//int r = p -> kstar + 1; //ATTENTION
+		int r = p -> kstar; //ATTENTION
+		//int r = 5; //ATTENTION
+		int iimin, iimax, jjmin, jjmax;
+        //idx_t ele = p -> array_idx;
+        //fprintf(f,"%lu\n",ele);
+        if(!(p -> is_center) && mask[i*ncols + j])
+        {
+            int cluster = -1;
+            idx_t k = 0;
+            idx_t p_idx;
+            //assign each particle at the same cluster as the nearest particle of higher density
+			jjmin = j - r > 0 				? j - r : 0;  
+			jjmax = j + r + 1 < (int)ncols 	? j + r + 1 : (int)ncols;  
+
+			iimin = i - r > 0 	 			? i - r : 0;  
+			iimax = i + r + 1 < (int)nrows 	? i + r + 1 : (int)nrows;  
+			
+			int ii_toTakeFrom, jj_toTakeFrom;
+			long int minNgbhDist = nrows*nrows*ncols*ncols;
+			for(int ii = iimin; ii < iimax; ++ii)
+			for(int jj = jjmin; jj < jjmax; ++jj)
+			//Take the same cluster as the nearest neighbor with higher density
+			{
+				//take the ngbh
+				long int currentDist = (ii-i)*(ii-i) + (jj-j)*(jj-j);	
+				int notMySelf = (ii != i) || (jj != j);
+				//if(ii*ncols + j == 302000)
+				//{
+				//	printf("Nopeh\n");
+				//}
+				if(dpInfo[ii*ncols + jj].cluster_idx != -1 && notMySelf && currentDist < minNgbhDist)
+				{
+					minNgbhDist = currentDist;
+					p_idx = ii*ncols + jj;
+					ii_toTakeFrom = ii;
+					jj_toTakeFrom = jj;
+					cluster = dpInfo[p_idx].cluster_idx; 
+				}
+			}
+
 
             //
             if(cluster == -1)
             {
                 FLOAT_TYPE gmax = -99999.;               
                 idx_t gm_index = 0;
-                for(idx_t k = 0; k < max_k; ++k)
+
+				for(int ii = iimin; ii < iimax; ++ii)
+				for(int jj = jjmin; jj < jjmax; ++jj)
                 {
-                    idx_t ngbh_index = p -> ngbh.data[k].array_idx;
+                    idx_t ngbh_index = ii*ncols + jj;
                     for(idx_t m = 0; m < removedCenters.count; ++m)
                     {
                         FLOAT_TYPE gcand = dpInfo[max_rho.data[m]].g;
@@ -794,9 +1069,15 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
 
             }
             p -> cluster_idx = cluster;
+			if(cluster == -1) mask[i*ncols + j] = 0;
+
 
         }
-    }
+	}
+
+
+
+    
 
     #ifdef VERBOSE
         clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -833,11 +1114,11 @@ Clusters Heuristic1(Datapoint_info* dpInfo, idx_t n)
     printf("\tFound %lu clusters\n",(uint64_t)actualCenters.count);
     printf("\tTotal time: %.3lfs\n\n", elapsed_tot);
 
-    c_all.n = n;
+    c_all.n = nrows*ncols;
     return c_all;
 }
 
-void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo)
+void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols)
 {
 
     #define borders cluster->borders
@@ -853,24 +1134,39 @@ void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo)
     idx_t nclus = cluster->centers.count; 
     idx_t max_k = dpInfo[0].ngbh.N;
 
-    for(idx_t i = 0; i < n; ++i)
+
+    for(int i = 0; i < (int)nrows; ++i)
+    for(int j = 0; j < (int)ncols; ++j)
     {
             idx_t pp = NOBORDER;
             /*loop over n neighbors*/
-            int c = dpInfo[i].cluster_idx;
-            if(!dpInfo[i].is_center)
+            int c = dpInfo[i*ncols + j].cluster_idx;
+            if((!(dpInfo[i*ncols + j].is_center)) && mask[i*ncols + j])
             {
-                for(idx_t k = 1; k < dpInfo[i].kstar + 1; ++k)
+				int r = (int)dpInfo[i*ncols + j].kstar;				
+				int jjmin = j - r > 0 				? j - r : 0;  
+				int jjmax = j + r + 1 < (int)ncols 	? j + r + 1 : (int)ncols;  
+
+				int iimin = i - r > 0 	 			? i - r : 0;  
+				int iimax = i + r + 1 < (int)nrows 	? i + r + 1 : (int)nrows;  
+				
+				long int minNgbhDist = nrows*nrows*ncols*ncols;
+				for(int ii = iimin; ii < iimax; ++ii)
+				for(int jj = jjmin; jj < jjmax; ++jj)
                 {
                     /*index of the kth ngbh of n*/
-                    idx_t j = dpInfo[i].ngbh.data[k].array_idx;
-                    pp = NOBORDER;
+                    idx_t jidx = ii*ncols + jj;
+					long int currentNgbhDist = (ii-i)*(ii-i) + (jj - j)*(jj - j);
                     /*Loop over kn neigbhours to find if n is the nearest*/
                     /*if cluster of the particle in nbhg is c then check is neighborhood*/                                                
-                    if(dpInfo[j].cluster_idx != c)
+                    if(dpInfo[jidx].cluster_idx != -1 
+							&& dpInfo[jidx].cluster_idx != c 
+							&& !dpInfo[jidx].is_center  
+							&& mask[jidx] 
+							&& currentNgbhDist < minNgbhDist)
                     {
-                        pp = j;
-                        break;
+						minNgbhDist = currentNgbhDist;
+                        pp = jidx;
                     }
 
                 }
@@ -878,86 +1174,100 @@ void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo)
 
             if(pp != NOBORDER)
             {
-                for(idx_t k = 1; k < max_k; ++k)
+				int r = (int)dpInfo[pp].kstar;				
+				int ngbh_i = (int)pp / (int)ncols; 
+				int ngbh_j = (int)pp % (int)ncols; 
+				int jjmin = ngbh_j - r > 0 				? ngbh_j - r : 0;  
+				int jjmax = ngbh_j + r + 1 < (int)ncols ? ngbh_j + r + 1 : (int)ncols;  
+
+				int iimin = ngbh_i - r > 0 	 			? ngbh_i - r : 0;  
+				int iimax = ngbh_i + r + 1 < (int)nrows ? ngbh_i + r + 1 : (int)nrows;  
+				
+				long int minNgbhDist = nrows*nrows*ncols*ncols;
+				idx_t nearestBelongingToC = NOBORDER;
+				for(int ii = iimin; ii < iimax; ++ii)
+				for(int jj = jjmin; jj < jjmax; ++jj)
                 {
-                    idx_t pp_ngbh_idx = dpInfo[pp].ngbh.data[k].array_idx;
-                    if(pp_ngbh_idx == i)
+					idx_t pp_ngbh_idx = ii*ncols + jj;
+					long int currentNgbhDist = (ii-i)*(ii-i) + (jj - j)*(jj - j);
+					//find if the nearest is the starting point
+                    if(dpInfo[pp_ngbh_idx].cluster_idx == c && currentNgbhDist < minNgbhDist )
                     {
-                        break;
-                    }
-                    if(dpInfo[pp_ngbh_idx].cluster_idx == c)
-                    {
-                        pp = NOBORDER;
-                        break;
+						minNgbhDist = currentNgbhDist;
+						nearestBelongingToC = pp_ngbh_idx;
                     }
                 }
+				if(nearestBelongingToC != i*ncols + j)
+				{
+					pp = NOBORDER;
+				}
             }
                             /*if it is the maximum one add it to the cluster*/
             if(pp != NOBORDER)
             {
-		int ppc = dpInfo[pp].cluster_idx;
-		if(cluster -> UseSparseBorders)
-		{
-			//insert one and symmetric one
-			SparseBorder_t b = {.i = c, .j = ppc, .idx = i, .density = dpInfo[i].g, .error = dpInfo[i].log_rho_err}; 
-			SparseBorder_Insert(cluster, b);
-			//get symmetric border
-			SparseBorder_t bsym = {.i = ppc, .j = c, .idx = i, .density = dpInfo[i].g, .error = dpInfo[i].log_rho_err}; 
-			SparseBorder_Insert(cluster, bsym);
+				int ppc = dpInfo[pp].cluster_idx;
+				if(cluster -> UseSparseBorders)
+				{
+					//insert one and symmetric one
+					SparseBorder_t b = {.i = c, .j = ppc, .idx = i*ncols + j, .density = dpInfo[i*ncols + j].g, .error = dpInfo[i*ncols + j].log_rho_err}; 
+					SparseBorder_Insert(cluster, b);
+					//get symmetric border
+					SparseBorder_t bsym = {.i = ppc, .j = c, .idx = i*ncols + j, .density = dpInfo[i*ncols + j].g, .error = dpInfo[i*ncols + j].log_rho_err}; 
+					SparseBorder_Insert(cluster, bsym);
 
-		}
-		else
+				}
+				else
+				{
+					if(dpInfo[i*ncols + j].g > borders[c][ppc].density)
+					{
+						borders[c][ppc].density = dpInfo[i*ncols + j].g;
+						borders[ppc][c].density = dpInfo[i*ncols + j].g;
+						borders[c][ppc].idx = i*ncols + j;
+						borders[ppc][c].idx = i*ncols + j;
+					}
+				}
+			}
+
+}
+
+
+	if(cluster -> UseSparseBorders)
+	{
+		for(idx_t c = 0; c < nclus; ++c)
 		{
-			if(dpInfo[i].g > borders[c][ppc].density)
+			for(idx_t el = 0; el < cluster -> SparseBorders[c].count; ++el)
 			{
-			    borders[c][ppc].density = dpInfo[i].g;
-			    borders[ppc][c].density = dpInfo[i].g;
-			    borders[c][ppc].idx = i;
-			    borders[ppc][c].idx = i;
+				//fix border density, write log rho c
+				idx_t idx = cluster -> SparseBorders[c].data[el].idx; 
+				cluster -> SparseBorders[c].data[el].density = dpInfo[idx].log_rho_c;
 			}
 		}
-            }
 
-    }
-
-
-    if(cluster -> UseSparseBorders)
-    {
-	    for(idx_t c = 0; c < nclus; ++c)
-	    {
-		    for(idx_t el = 0; el < cluster -> SparseBorders[c].count; ++el)
-		    {
-			    //fix border density, write log rho c
-			    idx_t idx = cluster -> SparseBorders[c].data[el].idx; 
-			    cluster -> SparseBorders[c].data[el].density = dpInfo[idx].log_rho_c;
-		    }
-	    }
-
-    }
-    else
-    {
-	    for(idx_t i = 0; i < nclus - 1; ++i)
-	    {
-		for(idx_t j = i + 1; j < nclus; ++j)
+	}
+	else
+	{
+		for(idx_t bi = 0; bi < nclus - 1; ++bi)
 		{
-		    idx_t p = borders[i][j].idx;
-		    if(p != NOBORDER)
-		    {   
+		for(idx_t bj = bi + 1; bj < nclus; ++bj)
+		{
+			idx_t p = borders[bi][bj].idx;
+			if(p != NOBORDER)
+			{   
 
-			borders[i][j].density = dpInfo[p].log_rho_c;
-			borders[j][i].density = dpInfo[p].log_rho_c;
+			borders[bi][bj].density = dpInfo[p].log_rho_c;
+			borders[bj][bi].density = dpInfo[p].log_rho_c;
 
-			borders[i][j].error = dpInfo[p].log_rho_err;
-			borders[j][i].error = dpInfo[p].log_rho_err;
-		    }
+			borders[bi][bj].error = dpInfo[p].log_rho_err;
+			borders[bj][bi].error = dpInfo[p].log_rho_err;
+			}
 		}
-	    }
+		}
 
-	    for(idx_t i = 0; i < nclus; ++i)
-	    {
-		borders[i][i].density = -1.0;
-		borders[i][i].error = 0.0;
-	    }
+		for(idx_t dd = 0; dd < nclus; ++dd)
+		{
+		borders[dd][dd].density = -1.0;
+		borders[dd][dd].error = 0.0;
+		}
     }
 
     clock_gettime(CLOCK_MONOTONIC, &finish_tot);
@@ -1028,7 +1338,7 @@ inline int is_a_merging( FLOAT_TYPE dens1, FLOAT_TYPE dens1_err,
 }
 
 
-inline int merging_roles( FLOAT_TYPE dens1, FLOAT_TYPE dens1_err,
+int merging_roles( FLOAT_TYPE dens1, FLOAT_TYPE dens1_err,
 			  FLOAT_TYPE dens2, FLOAT_TYPE dens2_err,
 			  FLOAT_TYPE dens_border, FLOAT_TYPE dens_border_err )
 {
@@ -1065,7 +1375,7 @@ void fix_borders_A_into_B(idx_t A, idx_t B, border_t** borders, idx_t n)
    }
 }
 
-inline void Delete_adjlist_element(Clusters * c, const idx_t list_idx, const idx_t el)
+void Delete_adjlist_element(Clusters * c, const idx_t list_idx, const idx_t el)
 {
 	//swap last element with 
 	idx_t count = c -> SparseBorders[list_idx].count;
@@ -1313,10 +1623,8 @@ void Heuristic3_sparse(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, 
     //fill the rest of old_to_new
     for(idx_t i = 0; i < nclus; ++i)
     {
-        if(surviving_clusters[i] != i){
-            idx_t cidx_to_copy_from = surviving_clusters[i];
-            old_to_new[i] = old_to_new[cidx_to_copy_from];
-        }
+		idx_t cidx_to_copy_from = surviving_clusters[i];
+		old_to_new[i] = old_to_new[cidx_to_copy_from];
     }
 
     /*allocate auxiliary pointers to store results of the finalization of the procedure*/
@@ -1339,7 +1647,11 @@ void Heuristic3_sparse(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, 
     {
         dpInfo[i].is_center = 0;
         int old_cidx = dpInfo[i].cluster_idx;
-        dpInfo[i].cluster_idx = old_to_new[old_cidx];
+		if(old_cidx != -1)
+		{
+			dpInfo[i].cluster_idx = old_to_new[old_cidx];
+		}
+
     }
 
     
@@ -1347,16 +1659,16 @@ void Heuristic3_sparse(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, 
     for(idx_t c = 0; c < final_cluster_count; ++c)
     {
         idx_t c_idx = tmp_cluster_idx.data[c];
-	for(idx_t el = 0; el < cluster -> SparseBorders[c_idx].count; ++el)
-	{
-		//retrieve border
-		SparseBorder_t b = cluster -> SparseBorders[c_idx].data[el];
-		//change idexes of clusters
-		b.i = old_to_new[b.i];
-		b.j = old_to_new[b.j];
+		for(idx_t el = 0; el < cluster -> SparseBorders[c_idx].count; ++el)
+		{
+			//retrieve border
+			SparseBorder_t b = cluster -> SparseBorders[c_idx].data[el];
+			//change idexes of clusters
+			b.i = old_to_new[b.i];
+			b.j = old_to_new[b.j];
 
-		AdjList_Insert(tmp_borders + c, b);
-	}
+			AdjList_Insert(tmp_borders + c, b);
+		}
     }
 
     Clusters_Reset(cluster);
@@ -1385,16 +1697,16 @@ void Heuristic3_sparse(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, 
 		    #pragma omp for
 		    for(idx_t c = 0; c < final_cluster_count; ++c)
 		    {
-			FLOAT_TYPE max_border_den = -2.;
-			for(idx_t el = 0; el < cluster -> SparseBorders[c].count; ++el)
-			{
-			    SparseBorder_t b = cluster -> SparseBorders[c].data[el];
-			    if(b.density > max_border_den)
-			    {
-				max_border_den = b.density;
-			    }
-			}
-			max_border_den_array[c] = max_border_den;
+				FLOAT_TYPE max_border_den = -2.;
+				for(idx_t el = 0; el < cluster -> SparseBorders[c].count; ++el)
+				{
+					SparseBorder_t b = cluster -> SparseBorders[c].data[el];
+					if(b.density > max_border_den)
+					{
+						max_border_den = b.density;
+					}
+				}
+				max_border_den_array[c] = max_border_den;
 		    }
 
 		    #pragma omp barrier
@@ -1402,9 +1714,13 @@ void Heuristic3_sparse(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, 
 		    #pragma omp for
 		    for(idx_t i = 0; i < cluster -> n; ++i)
 		    {
-			int cidx = dpInfo[i].cluster_idx;
-			int halo_flag = dpInfo[i].log_rho_c < max_border_den_array[cidx]; 
-			dpInfo[i].cluster_idx = halo_flag ? -1 : cidx;
+				int cidx = dpInfo[i].cluster_idx;
+				int halo_flag;
+				if(cidx != -1)
+				{
+					int halo_flag = dpInfo[i].log_rho_c < max_border_den_array[cidx] && !dpInfo[i].is_center; 
+					dpInfo[i].cluster_idx = halo_flag ? -1 : cidx;
+				}
 		    }
 		}
 		free(max_border_den_array);
@@ -1642,7 +1958,10 @@ void Heuristic3_dense(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, i
     {
         dpInfo[i].is_center = 0;
         int old_cidx = dpInfo[i].cluster_idx;
-        dpInfo[i].cluster_idx = old_to_new[old_cidx];
+		if(old_cidx != -1 )
+		{
+			dpInfo[i].cluster_idx = old_to_new[old_cidx];
+		}
     }
 
     
@@ -1709,8 +2028,11 @@ void Heuristic3_dense(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, i
 		    for(idx_t i = 0; i < cluster -> n; ++i)
 		    {
 			int cidx = dpInfo[i].cluster_idx;
-			int halo_flag = dpInfo[i].log_rho_c < max_border_den_array[cidx]; 
-			dpInfo[i].cluster_idx = halo_flag ? -1 : cidx;
+			if(cidx != -1)
+			{
+				int halo_flag = dpInfo[i].log_rho_c < max_border_den_array[cidx]; 
+				dpInfo[i].cluster_idx = halo_flag ? -1 : cidx;
+			}
 		    }
 		}
 		free(max_border_den_array);
@@ -1944,4 +2266,102 @@ void computeAvg(Datapoint_info* p, FLOAT_TYPE *va, FLOAT_TYPE* ve, FLOAT_TYPE* v
 		ve[i] = err_acc/(float_t)k;
 	}
 		
+}
+
+Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, int ncols, int rmax)
+{
+	//use it to prune isolated pixels
+    struct timespec start_tot, finish_tot;
+    double elapsed_tot;
+
+    printf("Density estimation from image\n");
+    //printf("Got: nrows %lu ncols %lu radius %lu\n", nrows, ncols, rmax);
+    printf("Got: nrows %d ncols %d radius %d\n", nrows, ncols, rmax);
+    clock_gettime(CLOCK_MONOTONIC, &start_tot);
+	
+    Datapoint_info* p = (Datapoint_info*)malloc(nrows*ncols*sizeof(Datapoint_info));
+	int* tmp_mask = (int*)malloc(nrows*ncols*sizeof(int));
+	for(int idx = 0; idx < nrows*ncols; ++idx) tmp_mask[idx] = 1;
+
+	#pragma omp parallel for schedule(dynamic)
+	for(int i = 0; i < nrows; ++i)			
+	for(int j = 0; j < ncols; ++j)			
+	{
+		int n = 0;
+		FLOAT_TYPE avg = 0;
+		FLOAT_TYPE var = 0;
+		int r = 1;
+		for(r = 1; r < rmax; ++r)
+		{
+			FLOAT_TYPE tmp_avg = avg;
+			FLOAT_TYPE tmp_var = var;
+			int 	   tmp_n   = n;
+
+			n = 0;
+			avg = 0;
+			var = 0;
+			int jjmin = j - r > 0 			? j - r : 0;  
+			int jjmax = j + r + 1 < ncols 	? j + r + 1 : ncols;  
+
+			int iimin = i - r > 0 	 		? i - r : 0;  
+			int iimax = i + r + 1 < nrows 	? i + r + 1 : nrows;  
+
+			for(int ii = iimin; ii < iimax; ++ii)
+			for(int jj = jjmin; jj < jjmax; ++jj)
+			{
+				int index = ii*ncols + jj;
+				n 	+= (mask[index] ? 1 : 0);	
+				avg += (mask[index] ? vals[index] : 0.);	
+				var += (mask[index] ? vals[index]*vals[index] : 0.);	
+			}
+			if(n > 1)
+			{
+				avg = avg/(float_t)n;
+				var = var/(float_t)(n-1) - avg*avg*(float_t)n/(float_t)(n-1); 	
+				var = var/(float_t)(n);
+			}
+
+			if(tmp_n > 2)
+			{
+				float_t sigma_comp = sqrt(var + tmp_var);
+				//float_t sigma_comp = sqrt(var);
+				int compatibilityCondition = (avg - tmp_avg < sigma_comp) && (tmp_avg - avg < sigma_comp);
+				//int compatibilityCondition = (var < tmp_var);
+				
+				if(!compatibilityCondition)
+				{
+					break;
+					var = tmp_var;
+					avg = tmp_avg;
+				}
+
+
+			}
+		}
+		if(n > 1)
+		{
+			p[i*ncols + j].log_rho = log(avg);
+			p[i*ncols + j].log_rho_err = sqrt(var)/avg;
+			p[i*ncols + j].g = p[i*ncols + j].log_rho - p[i*ncols + j].log_rho_err;
+			p[i*ncols + j].kstar = (idx_t)r;
+			p[i*ncols + j].array_idx = i*ncols + j;
+			p[i*ncols + j].cluster_idx = -1;
+		}
+		else
+		{
+			tmp_mask[i*ncols + j] = 0;
+			p[i*ncols + j].log_rho = -99999.;
+			p[i*ncols + j].g = -99999.; 
+		}
+
+	}
+	for(int idx = 0; idx < nrows*ncols; ++idx) mask[idx] = mask[idx] && tmp_mask[idx];
+	free(tmp_mask);
+
+    clock_gettime(CLOCK_MONOTONIC, &finish_tot);
+    elapsed_tot = (finish_tot.tv_sec - start_tot.tv_sec);
+    elapsed_tot += (finish_tot.tv_nsec - start_tot.tv_nsec) / 1000000000.0;
+    printf("\tTotal time: %.3lfs\n\n", elapsed_tot);
+
+	return p;
 }

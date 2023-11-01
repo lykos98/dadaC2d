@@ -23,6 +23,7 @@ FLOAT_TYPE euclidean_distance(FLOAT_TYPE* p1, FLOAT_TYPE* p2){
         d += dd*dd;
     }
 	return d;
+	//return sqrt(d);
 }
 
 void swapHeapNode(heap_node* a, heap_node* b){
@@ -208,12 +209,12 @@ kd_node* make_tree(kd_node** t, int start, int end, kd_node* parent, int level)
     return n;
 }
 
-inline FLOAT_TYPE hyper_plane_dist(FLOAT_TYPE* p1, FLOAT_TYPE* p2, int var)
+FLOAT_TYPE hyper_plane_dist(FLOAT_TYPE* p1, FLOAT_TYPE* p2, int var)
 {
     return p1[var] - p2[var];
 }
 
-inline int hyper_plane_side(FLOAT_TYPE* p1, FLOAT_TYPE* p2, int var)
+int hyper_plane_side(FLOAT_TYPE* p1, FLOAT_TYPE* p2, int var)
 {
     return p1[var] > p2[var];
 }
@@ -244,6 +245,7 @@ void KNN_sub_tree_search(FLOAT_TYPE* point, kd_node* kdtree_root, Heap * H)
     }
     FLOAT_TYPE max_d = H -> data[0].value;
     int c   = max_d > (hp_distance * hp_distance);
+    //int c   = max_d > fabs(hp_distance);
     //if(!c) printf("%f %f\n",max_d, hp_distance*hp_distance);
     if(c || (H -> count) < (H -> N))
     {

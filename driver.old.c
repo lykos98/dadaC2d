@@ -165,10 +165,18 @@ int main(int argc, char** argv){
     //Start timer
     clock_gettime(CLOCK_MONOTONIC, &start_tot);
 
-	//struct Options opt = Parser(argc, argv);
+	struct Options opt = Parser(argc, argv);
 
+
+    printf("Using: \n\t Z    	   : %.2lf \n\t Halo      : %s \n\t Neighbors : %d \n\t Sparse Borders      : %s \n\t Input in Float32    : %s\n\n", 
+			opt.Z, 
+			opt.halo ? "yes" : "no", 
+			opt.k,
+			opt.UseSparseBorders ? "yes" : "no", 
+			opt.FileInFloat32 ? "yes" : "no" 
+			);
     
-    FILE* f = fopen("../euclid/img.dat","r");
+    FILE* f = fopen(opt.inputFile,"r");
     if(!f)
     {
         printf("Nope\n");
@@ -178,85 +186,77 @@ int main(int argc, char** argv){
     size_t n = ftell(f);
     rewind(f);
 
-	int nrows = 3000;
-	int ncols = 3000;
-    n = n/(4);
-    //n = nrows*ncols; 
+	int InputFloatSize = opt.FileInFloat32 ? 4 : 8;
+
+    n = n/(InputFloatSize*opt.data_dims);
     printf("Reading %lu particles\n",(uint64_t)n);
 
 
-    FLOAT_TYPE* data = (FLOAT_TYPE*)malloc(n*sizeof(FLOAT_TYPE));
+    FLOAT_TYPE* data = (FLOAT_TYPE*)malloc(opt.data_dims*n*sizeof(FLOAT_TYPE));
 
-	if(1)
+	if(opt.FileInFloat32)
 	{
-		float* df = (float*)malloc(n*sizeof(float));
-		size_t fff = fread(df,sizeof(float),n,f);
-		//printf("Read %luB\n",fff);
+		float* df = (float*)malloc(opt.data_dims*n*sizeof(float));
+		size_t fff = fread(df,sizeof(float),opt.data_dims*n,f);
+		printf("Read %luB\n",fff);
 		fclose(f);
 
-		for(idx_t i = 0; i < n; ++i) data[i] = (FLOAT_TYPE)(df[i]);
+		for(idx_t i = 0; i < n*opt.data_dims; ++i) data[i] = (FLOAT_TYPE)(df[i]);
 
 		free(df);
 	}
 	else
 	{
-		double* df = (double*)malloc(n*sizeof(double));
-		size_t fff = fread(df,sizeof(double),n,f);
+		double* df = (double*)malloc(opt.data_dims*n*sizeof(double));
+		size_t fff = fread(df,sizeof(double),opt.data_dims*n,f);
 		printf("Read %luB\n",fff);
 		fclose(f);
 
-		for(idx_t i = 0; i < n; ++i) data[i] = (FLOAT_TYPE)(df[i]);
+		for(idx_t i = 0; i < n*opt.data_dims; ++i) data[i] = (FLOAT_TYPE)(df[i]);
 
 		free(df);
 	}
 
 	//Datapoint_info* particles = NgbhSearch_kdtree(data, n, opt.data_dims, opt.k); 
-	//Datapoint_info* particles = NgbhSearch_vptree(data, n,sizeof(FLOAT_TYPE), opt.data_dims, opt.k, eud); 
+	Datapoint_info* particles = NgbhSearch_vptree(data, n,sizeof(FLOAT_TYPE), opt.data_dims, opt.k, eud); 
     /********************************
      * Intrinsic Dimension estimate *
      ********************************/
 
-    //double id = idEstimate(particles, n);
+    double id = idEstimate(particles, n);
 
     /***********************
      * Density computation *
      ***********************/
-	int* mask = (int*)malloc(n*sizeof(int));
-	FILE* ff = fopen("../euclid/mask.dat", "r");
-	fread(mask, sizeof(int), n, ff);
-	fclose(ff);
-	//for(int i = 0; i < n; ++i) mask[i] = 1;
-	float_t Z = 2;
-	//Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, size_t nrows, size_t ncols);
-    Datapoint_info* particles = computeDensityFromImg(data, mask, (int)nrows, (int)ncols, 15); 
-    computeCorrection(particles,mask,n,Z);
+    computeRho(particles,id,n);
+    computeCorrection(particles,n,opt.Z);
 
     /********************
      * First clustering *
      ********************/
 
-    Clusters c = Heuristic1(particles, mask, (int)nrows, (int)ncols);
+    Clusters c = Heuristic1(particles, n);
 
     /***************************************************************************************
      * Allocate borders and other things to store clustering info                          *
      * Then Find borders between clusters and then merge clusters using peaks significance *
      ***************************************************************************************/
    // Clusters_allocate(&c);  
-    Clusters_allocate(&c, 1);  
+    Clusters_allocate(&c, opt.UseSparseBorders);  
 
     // sprintf(aux_fname, "%s_int", argv[2]);
     // write_point_info(aux_fname,particles,n);
 
-    Heuristic2(&c, particles, mask, (int)nrows, (int)ncols);
+    Heuristic2(&c, particles);
 
     //sprintf(aux_fname, "%s_bord_int", argv[2]);
     //write_border_idx(aux_fname,&c);
 
     c.n = n;
     
-    Heuristic3(&c, particles, Z, 1);
+    Heuristic3(&c, particles, opt.Z, opt.halo);
 
-	write_point_info("../euclid/out.dat", particles, n);
+	write_point_info(opt.outputFile, particles, n);
 	free(data);
 	freeDatapointArray(particles,n);
 	Clusters_free(&c);

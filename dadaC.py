@@ -129,6 +129,15 @@ class Data():
         self.__NgbhSearch_vptree.restype  = ct.POINTER(DatapointInfo)
         self.__eud = self.lib.eud
 
+        #Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, size_t nrows, size_t ncols)
+        self.__computeDensityFromImg = self.lib.computeDensityFromImg
+        self.__computeDensityFromImg.argtypes = [   np.ctypeslib.ndpointer(ctFloatType), 
+                                                    np.ctypeslib.ndpointer(np.int32),
+                                                    ct.c_int32,
+                                                    ct.c_int32,
+                                                    ct.c_int32]
+        self.__computeDensityFromImg.restype  = ct.POINTER(DatapointInfo)
+
         #void setRhoErrK(Datapoint_info* points, FLOAT_TYPE* rho, FLOAT_TYPE* rhoErr, idx_t* k, size_t n)
         self.__setRhoErrK = self.lib.setRhoErrK
         self.__setRhoErrK.argtypes = [  ct.POINTER(DatapointInfo),    
@@ -157,17 +166,20 @@ class Data():
         self.__computeRho.argtypes = [ct.POINTER(DatapointInfo), ct.c_double, ct.c_uint64]
 
         self.__computeCorrection = self.lib.computeCorrection
-        self.__computeCorrection.argtypes = [ct.POINTER(DatapointInfo), ctIdxType, ct.c_double]
+        self.__computeCorrection.argtypes = [ct.POINTER(DatapointInfo), np.ctypeslib.ndpointer(np.int32), ctIdxType, ct.c_double]
 
         self.__H1 = self.lib.Heuristic1
-        self.__H1.argtypes = [ct.POINTER(DatapointInfo), ct.c_uint64]
+        #Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols);
+        self.__H1.argtypes = [ct.POINTER(DatapointInfo), np.ctypeslib.ndpointer(np.int32), ct.c_int32, ct.c_int32]
         self.__H1.restype = Clusters
 
         self.__ClustersAllocate = self.lib.Clusters_allocate
         self.__ClustersAllocate.argtypes = [ct.POINTER(Clusters), ct.c_int]
 
         self.__H2 = self.lib.Heuristic2
-        self.__H2.argtypes = [ct.POINTER(Clusters), ct.POINTER(DatapointInfo)]
+        #void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols);
+        self.__H2.argtypes = [ct.POINTER(Clusters), ct.POINTER(DatapointInfo), 
+                              np.ctypeslib.ndpointer(np.int32), ct.c_uint64, ct.c_uint64]
 
         self.__H3 = self.lib.Heuristic3
         self.__H3.argtypes = [ct.POINTER(Clusters), ct.POINTER(DatapointInfo), ct.c_double, ct.c_int]
@@ -196,7 +208,16 @@ class Data():
         self.density           = None
         self.densityError      = None
 
-
+    def computeDensityFromImg(self,img, mask = None, r = 15):
+        if mask is None:
+            mask = np.ones_like(img, dtype = np.int32)
+        self.n = np.prod(img.shape)
+        mask = mask.astype(np.int32)
+        self.nrows, self.ncols = img.shape
+        self.img = img
+        self.mask = mask
+        self.__datapoints = self.__computeDensityFromImg(img,mask, img.shape[0], img.shape[1], r)
+        self.state["density"] = True
 
     def computeNeighbors_kdtree(self, k : int):
         
@@ -274,7 +295,7 @@ class Data():
         if not self.state["density"]:
             raise ValueError("Please compute density before calling this function")
         if useSparse == "auto":
-            if self.n > 2e6:
+            if self.n > 2e4:
                 self.state["useSparse"] = True
             else: 
                 self.state["useSparse"] = False 
@@ -285,10 +306,11 @@ class Data():
 
         self.state["computeHalo"] = halo 
         self.Z = Z
-        self.__computeCorrection(self.__datapoints, self.n, self.Z)
-        self.__clusters = self.__H1(self.__datapoints, self.n)
-        self.__ClustersAllocate(ct.pointer(self.__clusters), 1 if self.state["useSparse"] else 0)
-        self.__H2(ct.pointer(self.__clusters), self.__datapoints)
+        self.n = np.prod(self.img.shape)
+        self.__computeCorrection(self.__datapoints, self.mask, self.n, self.Z)
+        self.__clusters = self.__H1(self.__datapoints, self.mask, self.nrows, self.ncols)
+        self.__ClustersAllocate(ct.pointer(self.__clusters), 1)
+        self.__H2(ct.pointer(self.__clusters), self.__datapoints, self.mask, self.nrows, self.ncols)
         self.__H3(ct.pointer(self.__clusters), self.__datapoints, self.Z, 1 if halo else 0 )
         self.state["clustering"] = True
         self.clusterAssignment = None
@@ -339,14 +361,27 @@ class Data():
         else:
             return self.density
 
+    def getKstar(self) -> list:
+
+        """Retrieve list of density values
+
+        Raises:
+            ValueError: Raise error if density is not computed, use `Data.computeDensity()` 
+
+        Returns:
+            List of density values
+            
+        """
+        self.kstar = np.array([float(self.__datapoints[j].kstar) for j in range(self.n)]) 
+        return self.kstar
+
     def getDensityError(self):
         """Retrieve list of density error values
 
         Raises:
             ValueError: Raise error if density is not computed, use `Data.computeDensity()` 
 
-        Returns:
-            List of density error values
+        Returns: List of density error values
             
         """
         if self.densityError is None:

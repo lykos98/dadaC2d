@@ -120,14 +120,25 @@ Datapoint_info* NgbhSearch_kdtree(FLOAT_TYPE* data, size_t n, size_t ndims, size
 void computeRho(Datapoint_info *particles, const FLOAT_TYPE d,
                 const idx_t points);
 int cmpPP(const void *p1, const void *p2);
-void computeCorrection(Datapoint_info *particles, idx_t n, FLOAT_TYPE Z);
+void computeCorrection(Datapoint_info *particles, int* mask, idx_t n, FLOAT_TYPE Z);
 void KNN_search(Datapoint_info *particles, FLOAT_TYPE *data, kd_node *root,
                 idx_t n, idx_t k);
 
-Clusters Heuristic1(Datapoint_info *dp, idx_t n);
-void Heuristic2(Clusters *cluster, Datapoint_info *particles);
+Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols);
+//Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, int nrows, int ncols);
+void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols);
+//void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncols);
 void Heuristic3(Clusters *cluster, Datapoint_info *particles, FLOAT_TYPE Z,int halo);
 void freeDatapointArray(Datapoint_info* d, size_t n);
 
 float_t* eucMetricPx3(void*, void*);
 float_t eud(void*, void*);
+Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, int ncols, int r);
+void Delete_adjlist_element(Clusters * c, const idx_t list_idx, const idx_t el);
+int merging_roles( FLOAT_TYPE dens1, FLOAT_TYPE dens1_err,
+			  FLOAT_TYPE dens2, FLOAT_TYPE dens2_err,
+			  FLOAT_TYPE dens_border, FLOAT_TYPE dens_border_err );
+int is_a_merging( FLOAT_TYPE dens1, FLOAT_TYPE dens1_err,
+			 FLOAT_TYPE dens2, FLOAT_TYPE dens2_err,
+			 FLOAT_TYPE dens_border, FLOAT_TYPE dens_border_err,
+			 FLOAT_TYPE Z);
