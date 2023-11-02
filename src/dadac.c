@@ -1,4 +1,4 @@
-//#include "../include/read_fof_snapshot.h"
+//include "../include/read_fof_snapshot.h"
 #include "../include/dadac.h"
 #include <math.h>
 #include <omp.h>
@@ -886,14 +886,16 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 	idx_t* fromWho = (idx_t*)malloc(nrows*ncols*sizeof(idx_t));
     for(idx_t pidx = 0; pidx < nrows*ncols; ++pidx) fromWho[pidx] = SIZE_MAX;
 
-	/*
+	
+	
+	
 	#pragma omp parallel for schedule(dynamic)
     for(idx_t pidx = 0; pidx < nrows*ncols; ++pidx)
     {   
         Datapoint_info* p = dpInfo_ptrs[pidx];
-		int i = (int)(p -> array_idx) / ncols;
-		int j = (int)(p -> array_idx) % ncols;
-		int r = p -> kstar + 1; //ATTENTION
+		int i = (int)(p -> array_idx) / (int)ncols;
+		int j = (int)(p -> array_idx) % (int)ncols;
+		int r = p -> kstar ; //ATTENTION
 		//int r = 5; //ATTENTION
 		int iimin, iimax, jjmin, jjmax;
         //idx_t ele = p -> array_idx;
@@ -902,13 +904,12 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
         {
             int cluster = -1;
             idx_t k = 0;
-            idx_t p_idx;
             //assign each particle at the same cluster as the nearest particle of higher density
 			jjmin = j - r > 0 			? j - r : 0;  
-			jjmax = j + r + 1 < ncols 	? j + r + 1 : ncols;  
+			jjmax = j + r + 1 < (int)ncols 	? j + r + 1 : (int)ncols;  
 
 			iimin = i - r > 0 	 		? i - r : 0;  
-			iimax = i + r + 1 < nrows 	? i + r + 1 : nrows;  
+			iimax = i + r + 1 < (int)nrows 	? i + r + 1 : (int)nrows;  
 			
 			int ii_toTakeFrom, jj_toTakeFrom;
 			long int minNgbhDist = nrows*nrows*ncols*ncols;
@@ -921,7 +922,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 				//take the ngbh
 				long int currentDist = (ii-i)*(ii-i) + (jj-j)*(jj-j);	
 				int notMySelf = (ii != i) || (jj != j);
-				idx_t ngbhIdx = i*ncols + j;
+				idx_t ngbhIdx = ii*ncols + jj;
 				float_t g_ngbh = dpInfo[ngbhIdx].g; 
 				//if(ii*ncols + j == 302000)
 				//{
@@ -930,12 +931,11 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 				if(g_ngbh > g_current && notMySelf && currentDist < minNgbhDist)
 				{
 					minNgbhDist = currentDist;
-					p_idx = ii*ncols + jj;
 					ii_toTakeFrom = ii;
 					jj_toTakeFrom = jj;
-					cluster = dpInfo[p_idx].cluster_idx; 
+					//cluster = dpInfo[p_idx].cluster_idx; 
+					fromWho[i*ncols + j] = (idx_t)(ii*ncols+jj);
 					foundFlag = 1;
-					fromWho[i*ncols + j] = p_idx;
 				}
 			}
 
@@ -973,15 +973,17 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 		}
 	}
 
+
 	printf("aa\n");
-	#pragma omp parallel for schedule(dynamic)
+	//#pragma omp parallel for schedule(dynamic)
 	for(int i = 0; i < nrows; ++i)
 	for(int j = 0; j < ncols; ++j)
 	{
-		idx_t pidx = dpInfo_ptrs[i*ncols + j]->array_idx;
-		if(mask[pidx])
+		idx_t pidx = dpInfo_ptrs[i*ncols + j] -> array_idx;
+		if(mask[pidx] && !(dpInfo[pidx].is_center))
 		{
 			idx_t idxToTakeFrom = fromWho[pidx];
+			//int cluster = dpInfo[idxToTakeFrom].cluster_idx;				
 			int cluster = -1;
 			while(cluster == -1)
 			{
@@ -992,9 +994,8 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 		}
 	}
 	
-	*/
-
 	
+/*	
 	
     for(idx_t pidx = 0; pidx < nrows*ncols; ++pidx)
     {   
@@ -1004,6 +1005,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 		//int r = p -> kstar + 1; //ATTENTION
 		int r = p -> kstar; //ATTENTION
 		//int r = 5; //ATTENTION
+		idx_t ggg;
 		int iimin, iimax, jjmin, jjmax;
         //idx_t ele = p -> array_idx;
         //fprintf(f,"%lu\n",ele);
@@ -1039,6 +1041,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 					ii_toTakeFrom = ii;
 					jj_toTakeFrom = jj;
 					cluster = dpInfo[p_idx].cluster_idx; 
+					ggg = p_idx;
 				}
 			}
 
@@ -1061,6 +1064,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
                             //printf("%lu -- %lu\n", ele, m);
                             gmax = gcand;
                             gm_index = max_rho.data[m];
+							ggg = p_idx;
                         }
                     }
                 }
@@ -1069,6 +1073,9 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 
             }
             p -> cluster_idx = cluster;
+//			if(fromWho[i*ncols + j] != ggg) printf("Nope in %lu got m1 %lu mog %lu\n", 
+					i*ncols + j, 
+					fromWho[i*ncols + j], ggg); 
 			if(cluster == -1) mask[i*ncols + j] = 0;
 
 
@@ -1076,6 +1083,8 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 	}
 
 
+*/
+	
 
     
 
@@ -2268,9 +2277,7 @@ void computeAvg(Datapoint_info* p, FLOAT_TYPE *va, FLOAT_TYPE* ve, FLOAT_TYPE* v
 		
 }
 
-Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, int ncols, int rmax)
-{
-	//use it to prune isolated pixels
+Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, int ncols, int rmax) { //use it to prune isolated pixels
     struct timespec start_tot, finish_tot;
     double elapsed_tot;
 
@@ -2291,54 +2298,58 @@ Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, in
 		FLOAT_TYPE avg = 0;
 		FLOAT_TYPE var = 0;
 		int r = 1;
-		for(r = 1; r < rmax; ++r)
+		if(mask[i*ncols + j])
 		{
-			FLOAT_TYPE tmp_avg = avg;
-			FLOAT_TYPE tmp_var = var;
-			int 	   tmp_n   = n;
-
-			n = 0;
-			avg = 0;
-			var = 0;
-			int jjmin = j - r > 0 			? j - r : 0;  
-			int jjmax = j + r + 1 < ncols 	? j + r + 1 : ncols;  
-
-			int iimin = i - r > 0 	 		? i - r : 0;  
-			int iimax = i + r + 1 < nrows 	? i + r + 1 : nrows;  
-
-			for(int ii = iimin; ii < iimax; ++ii)
-			for(int jj = jjmin; jj < jjmax; ++jj)
+			for(r = 1; r < rmax; ++r)
 			{
-				int index = ii*ncols + jj;
-				n 	+= (mask[index] ? 1 : 0);	
-				avg += (mask[index] ? vals[index] : 0.);	
-				var += (mask[index] ? vals[index]*vals[index] : 0.);	
-			}
-			if(n > 1)
-			{
-				avg = avg/(float_t)n;
-				var = var/(float_t)(n-1) - avg*avg*(float_t)n/(float_t)(n-1); 	
-				var = var/(float_t)(n);
-			}
+				FLOAT_TYPE tmp_avg = avg;
+				FLOAT_TYPE tmp_var = var;
+				int 	   tmp_n   = n;
 
-			if(tmp_n > 2)
-			{
-				float_t sigma_comp = sqrt(var + tmp_var);
-				//float_t sigma_comp = sqrt(var);
-				int compatibilityCondition = (avg - tmp_avg < sigma_comp) && (tmp_avg - avg < sigma_comp);
-				//int compatibilityCondition = (var < tmp_var);
-				
-				if(!compatibilityCondition)
+				n = 0;
+				avg = 0;
+				var = 0;
+				int jjmin = j - r > 0 			? j - r : 0;  
+				int jjmax = j + r + 1 < ncols 	? j + r + 1 : ncols;  
+
+				int iimin = i - r > 0 	 		? i - r : 0;  
+				int iimax = i + r + 1 < nrows 	? i + r + 1 : nrows;  
+
+				for(int ii = iimin; ii < iimax; ++ii)
+					for(int jj = jjmin; jj < jjmax; ++jj)
+					{
+						int index = ii*ncols + jj;
+						n 	+= (mask[index] ? 1 : 0);	
+						avg += (mask[index] ? vals[index] : 0.);	
+						var += (mask[index] ? vals[index]*vals[index] : 0.);	
+					}
+				if(n > 1)
 				{
-					break;
-					var = tmp_var;
-					avg = tmp_avg;
+					avg = avg/(float_t)n;
+					var = var/(float_t)(n-1) - avg*avg*(float_t)n/(float_t)(n-1); 	
+					var = var/(float_t)(n);
 				}
 
+				if(tmp_n > 2)
+				{
+					float_t sigma_comp = sqrt(var + tmp_var);
+					//float_t sigma_comp = sqrt(var);
+					int compatibilityCondition = (avg - tmp_avg < sigma_comp) && (tmp_avg - avg < sigma_comp);
+					//int compatibilityCondition = (var < tmp_var);
 
-			}
+					if(!compatibilityCondition)
+					{
+						break;
+						var = tmp_var;
+						avg = tmp_avg;
+					}
+
+
+				}
+
 		}
-		if(n > 1)
+		}
+		if(n > 1 && mask[i*ncols + j])
 		{
 			p[i*ncols + j].log_rho = log(avg);
 			p[i*ncols + j].log_rho_err = sqrt(var)/avg;

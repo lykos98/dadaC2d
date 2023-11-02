@@ -178,8 +178,8 @@ int main(int argc, char** argv){
     size_t n = ftell(f);
     rewind(f);
 
-	int nrows = 3000;
-	int ncols = 3000;
+	int nrows = 7723;
+	int ncols = 6945;
     n = n/(4);
     //n = nrows*ncols; 
     printf("Reading %lu particles\n",(uint64_t)n);
@@ -226,7 +226,7 @@ int main(int argc, char** argv){
 	fread(mask, sizeof(int), n, ff);
 	fclose(ff);
 	//for(int i = 0; i < n; ++i) mask[i] = 1;
-	float_t Z = 2;
+	float_t Z = 10;
 	//Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, size_t nrows, size_t ncols);
     Datapoint_info* particles = computeDensityFromImg(data, mask, (int)nrows, (int)ncols, 15); 
     computeCorrection(particles,mask,n,Z);
