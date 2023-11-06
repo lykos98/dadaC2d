@@ -1,5 +1,5 @@
 LIBRARIES=-lm -fopenmp 
-OPTIM=-O4 -march=native  -Wall -Wextra -DUSE_NORM
+OPTIM=-O4 -mavx2 -march=native  -Wall -Wextra -DUSE_NORM
 DEBUG=
 SRC="src"
 VERBOSE=-DVERBOSE

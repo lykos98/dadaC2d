@@ -974,7 +974,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 	}
 
 
-	printf("aa\n");
+	//printf("aa\n");
 	//#pragma omp parallel for schedule(dynamic)
 	for(int i = 0; i < nrows; ++i)
 	for(int j = 0; j < ncols; ++j)
