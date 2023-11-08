@@ -154,7 +154,8 @@ struct Options Parser(int argc, char** argv)
 
 
 
-int main(int argc, char** argv){
+//int main(int argc, char** argv){
+int main(){
 
     //char aux_fname[80];
 
@@ -191,7 +192,7 @@ int main(int argc, char** argv){
 	{
 		float* df = (float*)malloc(n*sizeof(float));
 		size_t fff = fread(df,sizeof(float),n,f);
-		//printf("Read %luB\n",fff);
+		printf("Read %luB\n",fff);
 		fclose(f);
 
 		for(idx_t i = 0; i < n; ++i) data[i] = (FLOAT_TYPE)(df[i]);
@@ -223,7 +224,9 @@ int main(int argc, char** argv){
      ***********************/
 	int* mask = (int*)malloc(n*sizeof(int));
 	FILE* ff = fopen("../euclid/mask.dat", "r");
-	fread(mask, sizeof(int), n, ff);
+	//only here to fix warning
+	size_t aaa = fread(mask, sizeof(int), n, ff);
+	if(0) printf("%lu\n",aaa);
 	fclose(ff);
 	//for(int i = 0; i < n; ++i) mask[i] = 1;
 	float_t Z = 10;

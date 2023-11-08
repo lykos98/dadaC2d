@@ -84,4 +84,4 @@ void KNN_sub_tree_search(FLOAT_TYPE* point, kd_node* kdtree_root, Heap * H);
 Heap KNN(FLOAT_TYPE* point, kd_node* kdtree_root, int maxk);
 
 kd_node * build_tree(kd_node** kd_ptrs, size_t n, size_t dimensions);
-inline FLOAT_TYPE hyper_plane_dist(FLOAT_TYPE* p1, FLOAT_TYPE* p2, int var);
+//inline FLOAT_TYPE hyper_plane_dist(FLOAT_TYPE* p1, FLOAT_TYPE* p2, int var);

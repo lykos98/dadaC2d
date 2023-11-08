@@ -902,8 +902,8 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
         //fprintf(f,"%lu\n",ele);
         if(!(p -> is_center) && mask[i*ncols + j])
         {
-            int cluster = -1;
-            idx_t k = 0;
+            //int cluster = -1;
+            //idx_t k = 0;
             //assign each particle at the same cluster as the nearest particle of higher density
 			jjmin = j - r > 0 			? j - r : 0;  
 			jjmax = j + r + 1 < (int)ncols 	? j + r + 1 : (int)ncols;  
@@ -911,7 +911,7 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 			iimin = i - r > 0 	 		? i - r : 0;  
 			iimax = i + r + 1 < (int)nrows 	? i + r + 1 : (int)nrows;  
 			
-			int ii_toTakeFrom, jj_toTakeFrom;
+			//int ii_toTakeFrom, jj_toTakeFrom;
 			long int minNgbhDist = nrows*nrows*ncols*ncols;
 			float_t g_current = dpInfo[i*ncols + j].g;
 			int foundFlag = 0;
@@ -931,8 +931,8 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 				if(g_ngbh > g_current && notMySelf && currentDist < minNgbhDist)
 				{
 					minNgbhDist = currentDist;
-					ii_toTakeFrom = ii;
-					jj_toTakeFrom = jj;
+					//ii_toTakeFrom = ii;
+					//jj_toTakeFrom = jj;
 					//cluster = dpInfo[p_idx].cluster_idx; 
 					fromWho[i*ncols + j] = (idx_t)(ii*ncols+jj);
 					foundFlag = 1;
@@ -976,8 +976,8 @@ Clusters Heuristic1(Datapoint_info* dpInfo, int* mask, size_t nrows, size_t ncol
 
 	//printf("aa\n");
 	//#pragma omp parallel for schedule(dynamic)
-	for(int i = 0; i < nrows; ++i)
-	for(int j = 0; j < ncols; ++j)
+	for(int i = 0; i < (int)nrows; ++i)
+	for(int j = 0; j < (int)ncols; ++j)
 	{
 		idx_t pidx = dpInfo_ptrs[i*ncols + j] -> array_idx;
 		if(mask[pidx] && !(dpInfo[pidx].is_center))
@@ -1134,14 +1134,14 @@ void Heuristic2(Clusters* cluster, Datapoint_info* dpInfo, int* mask, size_t nro
 
     struct timespec start_tot, finish_tot;
     double elapsed_tot;
-    idx_t n = cluster -> n;
+    //idx_t n = cluster -> n;
 
     printf("H2: Finding border points\n");
     clock_gettime(CLOCK_MONOTONIC, &start_tot);
 
 
     idx_t nclus = cluster->centers.count; 
-    idx_t max_k = dpInfo[0].ngbh.N;
+    //idx_t max_k = dpInfo[0].ngbh.N;
 
 
     for(int i = 0; i < (int)nrows; ++i)
@@ -1724,7 +1724,7 @@ void Heuristic3_sparse(Clusters* cluster, Datapoint_info* dpInfo, FLOAT_TYPE Z, 
 		    for(idx_t i = 0; i < cluster -> n; ++i)
 		    {
 				int cidx = dpInfo[i].cluster_idx;
-				int halo_flag;
+				//int halo_flag;
 				if(cidx != -1)
 				{
 					int halo_flag = dpInfo[i].log_rho_c < max_border_den_array[cidx] && !dpInfo[i].is_center; 
