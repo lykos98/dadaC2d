@@ -106,10 +106,10 @@ class Data():
                     "computeHalo": None 
                     }
         if self.__useFloat32:
-            self.data = np.ascontigousarray(data.astype(np.float32))
+            self.data = data.astype(np.float32)
             ctFloatType = ct.c_float
         else:
-            self.data = np.ascontiguousarray(data.astype(np.float64))
+            self.data = data.astype(np.float64)
 
         if self.__useInt32:
             ctIdxType = ct.c_uint32
