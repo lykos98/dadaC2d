@@ -209,9 +209,9 @@ class Data():
         #        uint32_t target_height)
         #{
         self.__write_png = self.lib.tiny_colorize
-        self.__write_png.argtypes = [ct.c_char_p,
+        self.__write_png.argtypes = [ct.POINTER(ct.c_char),
                                      ct.POINTER(DatapointInfo),
-                                     np.ctypeslib.ndpointer(ctFloatType),
+                                     ct.POINTER(ctFloatType),
                                      ct.c_uint32,
                                      ct.c_uint32,
                                      ct.c_uint32,
@@ -450,12 +450,7 @@ class Data():
         return
 
     def writePNG(self,fname, scale = 0.5):
-        max_allowed_dim = 4000
-        if self.nrows * scale > max_allowed_dim or self.ncols * scale > max_allowed_dim:
-            dim = max(self.nrows, self.ncols)
-            scale = max_allowed_dim / dim
-
-        self.__write_png(b"img.png", self.__datapoints, self.data, self.__clusters.centers.count, self.ncols, self.nrows, np.uint64(self.ncols * scale), np.uint64(self.nrows * scale) )
+        self.__write_png(fname, self.__datapoints, self.data, self.__clusters.centers.count, self.ncols, self.nrows, int(self.ncols * scale), int(self.nrows * scale) )
 
     def __del__(self):
         if not self.__datapoints is None:

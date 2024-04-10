@@ -7,9 +7,24 @@
 #include <stdlib.h>
 #include <time.h>
 #include "./metrics.c"
+
+/*
+#define STB_IMAGE_IMPLEMENTATION
+#include "../include/stb_image.h"
+*/
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "../include/stb_image_write.h"
+
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "../include/stb_image_resize2.h"
+
 #define MAX_SERIAL_MERGING 40000
 #define MAX_N_NGBH 1000
 #define PREALLOC_BORDERS 10
+
+#define MAX(x,y) x > y ? x : y
+#define MIN(x,y) x < y ? x : y
 
 unsigned int data_dims;
 idx_t Npart;
@@ -2376,3 +2391,94 @@ Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, in
 
 	return p;
 }
+
+#define RED(x)      (3 * x) 
+#define GREEN(x)    (3 * x + 1) 
+#define BLUE(x)     (3 * x + 2)
+
+void tiny_colorize(
+        const char* fname, 
+        Datapoint_info* dp, 
+        FLOAT_TYPE* data, 
+        uint32_t n_clusters, 
+        uint32_t og_width, 
+        uint32_t og_height, 
+        uint32_t target_width,
+        uint32_t target_height)
+{
+
+    unsigned char* img_buffer = (unsigned char*)malloc(3 * (og_width * 2) * og_height);
+
+    uint32_t stride = 2 * og_width;
+    uint32_t offset = og_width;
+   
+    unsigned char* palette = (unsigned char*)malloc(3 * (n_clusters + 1));
+    /* generate palette */
+    palette[RED(0)]     = 255;
+    palette[GREEN(0)]   = 255;
+    palette[BLUE(0)]    = 255;
+    for(uint32_t i = 1; i < n_clusters + 1; ++i)
+    {
+        palette[RED(i)]     = (unsigned char)(rand() % 256);
+        palette[GREEN(i)]   = (unsigned char)(rand() % 256);
+        palette[BLUE(i)]    = (unsigned char)(rand() % 256);
+    }
+
+    for(uint32_t i = 0; i < og_height; ++i)
+        for(uint32_t j = 0; j < og_width; ++j)
+        {
+            uint32_t idx = i * stride + j;
+            int cluster_idx = dp[i * og_width + j].cluster_idx + 1;
+
+            img_buffer[RED(idx)] = palette[RED(cluster_idx)]; 
+            img_buffer[GREEN(idx)] = palette[GREEN(cluster_idx)]; 
+            img_buffer[BLUE(idx)] = palette[BLUE(cluster_idx)]; 
+        }
+
+    FLOAT_TYPE data_max = -9999999.f;
+    FLOAT_TYPE data_min =  9999999.f;
+    for(uint32_t i = 0; i < og_height; ++i)
+        for(uint32_t j = 0; j < og_width; ++j)
+        {
+            data_max = MAX(data_max, data[i * og_width + j] );
+            data_min = MIN(data_min, data[i * og_width + j] );
+        }
+
+    FLOAT_TYPE delta = 1./(data_max - data_min);
+    for(uint32_t i = 0; i < og_height; ++i)
+        for(uint32_t j = 0; j < og_width; ++j)
+        {
+            uint32_t idx = i * stride + j + offset;
+            FLOAT_TYPE val = data[i * og_width + j];
+            FLOAT_TYPE vnorm = (val - data_min)*delta;
+            FLOAT_TYPE a = 1;
+            FLOAT_TYPE c = 0.97;
+
+            unsigned char v = (unsigned char)(a * vnorm/(c * vnorm + (a - c))*255.);
+            //unsigned char v = (unsigned char)((val - data_min)*delta*255.);
+
+            img_buffer[RED(idx)]    = v; 
+            img_buffer[GREEN(idx)]  = v; 
+            img_buffer[BLUE(idx)]   = v; 
+        }
+    
+     unsigned char* out_pixels = stbir_resize_uint8_srgb( img_buffer,  2 * og_width,  og_height,  0,
+                                                  NULL, 2 * target_width, target_height, 0,
+                                                  STBIR_RGB);
+     stbi_write_png(fname, 2 * target_width, target_height, 3, out_pixels, 0);
+   
+     free(out_pixels);
+     free(img_buffer);
+     free(palette);
+    
+}
+
+#undef BLUE
+#undef GREEN
+#undef RED
+
+void export_cluster_assignment(Datapoint_info* points, int* labels, idx_t n)
+{
+	for(idx_t i = 0; i < n; ++i) labels[i] = points[i].cluster_idx;
+}
+
