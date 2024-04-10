@@ -6,19 +6,9 @@ VERBOSE=-DVERBOSE
 
 CC=gcc
 
-all: driver test
+all: lib 
 
-test: test.o bin/libdadac.so
-	${CC} test.o -L./bin -ldadac ${LIBRARIES} ${DEBUG} -o test
-
-driver: driver.o bin/libdadac.so
-	${CC} driver.o -L./bin -ldadac ${LIBRARIES} ${DEBUG} -o driver
-
-test.o: test.c
-	${CC} -c test.c -o test.o ${OPTIM} ${LIBRARIES} ${DEBUG} ${VERBOSE}
-
-driver.o: driver.c
-	${CC} -c driver.c -o driver.o ${OPTIM} -fopenmp ${DEBUG}
+lib: bin/libdadac.so
 
 bin/libdadac.so: bin/dadac.o bin/kdtree.o bin/heap.o bin/vptree.o
 	${CC} -shared bin/dadac.o bin/kdtree.o bin/heap.o bin/vptree.o ${DEBUG} ${OPTIM} ${LIBRARIES} -o bin/libdadac.so 
