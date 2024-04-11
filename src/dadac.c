@@ -2396,6 +2396,8 @@ Datapoint_info* computeDensityFromImg(FLOAT_TYPE* vals, int* mask, int nrows, in
 #define GREEN(x)    (3 * x + 1) 
 #define BLUE(x)     (3 * x + 2)
 
+
+
 void tiny_colorize(
         const char* fname, 
         Datapoint_info* dp, 
@@ -2406,6 +2408,8 @@ void tiny_colorize(
         uint32_t target_width,
         uint32_t target_height)
 {
+    FLOAT_TYPE a = 1;
+    FLOAT_TYPE c = 0.99;
 
     unsigned char* img_buffer = (unsigned char*)malloc(3 * (og_width * 2) * og_height);
 
@@ -2451,15 +2455,17 @@ void tiny_colorize(
             uint32_t idx = i * stride + j + offset;
             FLOAT_TYPE val = data[i * og_width + j];
             FLOAT_TYPE vnorm = (val - data_min)*delta;
-            FLOAT_TYPE a = 1;
-            FLOAT_TYPE c = 0.97;
 
-            unsigned char v = (unsigned char)(a * vnorm/(c * vnorm + (a - c))*255.);
+            //unsigned char v = (unsigned char)(a * vnorm/(c * vnorm + (a - c))*255.);
             //unsigned char v = (unsigned char)((val - data_min)*delta*255.);
+            //unsigned char v = (unsigned char)(0.5*(tanh(100 * vnorm - 2.5) + 1)*255.);
+            FLOAT_TYPE v = (a * vnorm/(c * vnorm + (a - c)));
 
-            img_buffer[RED(idx)]    = v; 
-            img_buffer[GREEN(idx)]  = v; 
-            img_buffer[BLUE(idx)]   = v; 
+            img_buffer[RED(idx)]    = (unsigned char)(v * 255); 
+            img_buffer[GREEN(idx)]  = (unsigned char)(v * 255); 
+            img_buffer[BLUE(idx)]   = (unsigned char)(v * 255); 
+
+            
         }
     
      unsigned char* out_pixels = stbir_resize_uint8_srgb( img_buffer,  2 * og_width,  og_height,  0,
